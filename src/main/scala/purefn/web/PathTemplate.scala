@@ -35,7 +35,7 @@ final class PathLitComponent(val s: String) extends ExactPathComponent[Unit] {
 }
 
 object ** extends PathComponent[List[String]] {
-  override def apply(a: List[String]): String = a.map(encode(_, "UTF-8")).intersperse("/").foldMapIdentity
+  override def apply(a: List[String]): String = a.map(encode(_, "UTF-8")).intersperse("/").foldMap()
 
   def fold[Z](lit: String => Z, param: (String, String => Option[List[String]], List[String] => String) => Z, remaining: => Z) =
     remaining

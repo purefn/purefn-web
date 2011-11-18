@@ -16,4 +16,7 @@ package object web {
 
   type ResponseEnumT[A] = EnumeratorT[Throwable, String, IO, A]
   type ResponseBody = Forall[ResponseEnumT]
+  
+  object WebFn extends WebFnInstances
+  object Headers extends HeadersFunctions
 }

@@ -36,8 +36,8 @@ trait RequestInstances {
         r.params.toList.flatMap(kv => List(kv._1.shows, ": ", kv._2.toList.shows)),
         List("==============================")).flatten
       def body: String =
-        List(hdrs, version, pathInfo, contextPath, params).flatMap(_.map(("    " + _) andThen (_ + "\n"))).foldMapIdentity     
-      List("Request <\n", body, ">").foldMapIdentity
+        List(hdrs, version, pathInfo, contextPath, params).flatMap(_.map(("    " + _) andThen (_ + "\n"))).foldMap()     
+      List("Request <\n", body, ">").foldMap()
       
       
     }

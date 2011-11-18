@@ -2,7 +2,7 @@ package purefn.web
 
 import scalaz._
 import syntax.monoid._
-import iteratee.EnumeratorT._
+import iteratee.EnumeratorT.enumStream
 
 sealed case class Response(
   httpVersion: String = "1.1",
@@ -38,6 +38,13 @@ trait ResponseFunctions {
       contentLength = Some(body.length),
       body = new Forall[ResponseEnumT] { def apply[A] = enumStream(Stream(body)) } )
   }
+  
+  def fourOhSix: Response = 
+    Response(
+      status = 406,
+      statusReason = "Not Acceptable",
+      contentLength = Some(0)
+    )
 
   implicit def responseBodyStr(s: String): ResponseBody = new Forall[ResponseEnumT] {
     def apply[A] = enumStream(Stream(s))
@@ -62,8 +69,13 @@ trait ResponseInstances {
       def version = "version: " + r.httpVersion
       def status = "status: " + r.status
       def reason = "reason: " + r.statusReason
-      def body = (hdrs ++ List(version, status, reason)).flatMap(_.map(("    " + _) andThen (_ + "\n"))).foldMapIdentity
-      List("Response <\n", body, ">").foldMapIdentity
+      def body = (hdrs ++ List(version, status, reason)).map(("    " + _) andThen (_ + "\n")).foldMap()
+      List("Response <\n", body, ">").foldMap()
     }
+  }
+
+  implicit def ResponseHasHeaders: HasHeaders[Response] = new HasHeaders[Response] {
+    def updateHeaders(r: Response)(f: Headers => Headers) = r.copy(headers = f(r.headers))
+    def headers(r: Response) = r.headers
   }
 }

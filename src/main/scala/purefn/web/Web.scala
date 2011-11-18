@@ -3,13 +3,11 @@ package purefn.web
 import scalaz._
 import std.option._, optionSyntax._
 import syntax.pointed._
-import Validation._
+import syntax.validation._
 
 sealed case class WebData(request: Request, response: Response)
 
 sealed trait Web[A] {
-  import Web._
-  
   val state: WebState[WebResult[A]]
   
   def map[B](f: A => B): Web[B] = {
@@ -20,38 +18,26 @@ sealed trait Web[A] {
     _ fold (
       none = none.point[WebState],
       some = _.fold(
-        failure = r => some(failure[Response, B](r)).point[WebState],
+        failure = r => r.fail.some.point[WebState],
         success = a => f(a).state))))
 
   def run[A](req: Request): WebIter[(Request, Response)] = {
+    import Response._
     state(WebData(req, emptyResponse.copy(httpVersion = req.httpVersion))) map (rwd => 
       (rwd._2.request, rwd._1.map ( _.fail | rwd._2.response) getOrElse (fourOhFour)))
   }
 }
 
-object Web extends WebFunctions with
-  RouteFunctions with
-  ResponseFunctions with
-  HeadersFunctions with
-  PathTemplates {
-  
+object Web extends WebFunctions with WebInstances with WebFnInstances {
   def apply[A](s: WebState[WebResult[A]]): Web[A] = new Web[A] {
     val state = s
   }
 }
 
 trait WebInstances {
-  import Response._
-
-/* TODO where should this go?
-  implicit def WebFnMonadWeb[S]: MonadWeb[({type λ[α] = WebFn[S, α]})#λ] = new MonadWeb[({type λ[α] = WebFn[S, α]})#λ] {
-    def liftWeb[A](wa: Web[A]) = Kleisli(s => a)
-  }
-*/
-
-  implicit def webInstances = new MonadWeb[Web] {
+  implicit def webInstances: MonadWeb[Web] = new MonadWeb[Web] {
     def empty[A] = Web(none[Validation[Response, A]].point[WebState])
-    def point[A](a: => A) = Web(some(success[Response, A](a)).point[WebState])
+    def point[A](a: => A) = Web(a.success.some.point[WebState])
     def bind[A, B](fa: Web[A])(f: A => Web[B]) = fa flatMap f
     override def map[A, B](fa: Web[A])(f: A => B) = fa map f
     def plus[A](a: Web[A], b: => Web[A]) = 
@@ -64,18 +50,18 @@ trait WebFunctions {
   def pass[F[_]: MonadWeb, A]: F[A] = MonadWeb[F].empty[A]
   
   def finishWith[F[_]: MonadWeb, A](r: Response): F[A] =
-    MonadWeb[F].liftWeb(Web(some(failure[Response, A](r)).point[WebState]))
+    MonadWeb[F].liftWeb(Web(r.fail.some.point[WebState]))
 
   /* Web versions of init, modify, and put */
 
   def winit: Web[WebData] = 
-    Web(MonadState[WebIterState, WebData].init.map(wd => some(success(wd))))
+    Web(MonadState[WebIterState, WebData].init.map(wd => wd.success.some))
 
   def wput(wd: => WebData): Web[Unit] =
-    Web(MonadState[WebIterState, WebData].put(wd) flatMap (_ => some(success[Response, Unit](())).point[WebState]))
+    Web(MonadState[WebIterState, WebData].put(wd) flatMap (_ => ().success.some.point[WebState]))
   
   def wmodify(f: WebData => WebData): Web[Unit] = 
-    Web(MonadState[WebIterState, WebData].modify(f) flatMap (_ => some(success[Response, Unit](())).point[WebState]))
+    Web(MonadState[WebIterState, WebData].modify(f) flatMap (_ => ().success.some.point[WebState]))
 
   /* Request handling functions */
   def getRequest[F[_]: MonadWeb]: F[Request] = MonadWeb[F].liftWeb(winit map (_.request))
@@ -94,7 +80,7 @@ trait WebFunctions {
     MonadWeb[F].liftWeb(wmodify(ws => ws.copy(response = f(ws.response))))
     
   /* Writing responses */
-  import iteratee.EnumeratorT._
+  import iteratee.EnumeratorT.enumStream
 
   def writeStr[F[_]: MonadWeb](s: String): F[Unit] = addToBody(new Forall[ResponseEnumT] { 
     def apply[A] = enumStream(Stream(s))
@@ -102,9 +88,12 @@ trait WebFunctions {
   
   import Response._
   import syntax.monoid._
-
-  def addToBody[F[_]](enum: ResponseBody)(implicit mw: MonadWeb[F]): F[Unit] =
+  import iteratee._
+  
+  def addToBody[F[_]: MonadWeb](enum: ResponseBody): F[Unit] =
     modifyResponse(modifyResponseBody(new (ResponseEnumT ~> ResponseEnumT) {
-      def apply[A](e: ResponseEnumT[A]) = e |+| enum[A]
+      def apply[A](e: ResponseEnumT[A]) = {
+        e |+| enum[A]
+      }
     }))
 }

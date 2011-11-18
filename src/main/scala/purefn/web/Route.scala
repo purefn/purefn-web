@@ -28,7 +28,7 @@ trait RouteFunctions {
   
   def route[F[_]: MonadWeb, A](routes: (PathTemplate[_], F[A])*): F[A] = {
     lazy val a = routes map (rt => rt._1.routeTo(rt._2))
-    lazy val router = (a).toList.foldMapIdentity
+    lazy val router = (a).toList.foldMap()
     for {
       req <- getRequest[F]
       val p = req.pathInfo
@@ -38,11 +38,11 @@ trait RouteFunctions {
 
   private def routeReq[F[_]: MonadWeb, A](router: Route[F, A], ctx: List[String], path: List[String], params: Params): F[A] = {
     def updateContextPath(ctx: List[String], r: Request): Request = {
-      val n = ctx.intersperse("/").foldMapIdentity.length
+      val n = ctx.intersperse("/").foldMap().length
       if (n == 0) r
       else r.copy(
         pathInfo = r.pathInfo.drop(n+1),
-        contextPath = List(r.contextPath, r.pathInfo.take(n), "/").foldMapIdentity)
+        contextPath = List(r.contextPath, r.pathInfo.take(n), "/").foldMap())
     }
     
     router(
@@ -66,7 +66,7 @@ trait RouteFunctions {
     )
   }
   
-  def withModifiedRequest[F[_]: MonadWeb, A](w: F[A])(f: Request => Request): F[A] = {
+  private def withModifiedRequest[F[_]: MonadWeb, A](w: F[A])(f: Request => Request): F[A] = {
     def tryReq(req: Request): F[A] = 
       for {
         _ <- modifyRequest(f)
