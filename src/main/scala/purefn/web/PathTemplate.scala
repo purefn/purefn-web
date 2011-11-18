@@ -35,7 +35,7 @@ final class PathLitComponent(val s: String) extends ExactPathComponent[Unit] {
 }
 
 object ** extends PathComponent[List[String]] {
-  override def apply(a: List[String]): String = a.map(encode(_, "UTF-8")).intersperse("/").suml
+  override def apply(a: List[String]): String = a.map(encode(_, "UTF-8")).intersperse("/").foldMapIdentity
 
   def fold[Z](lit: String => Z, param: (String, String => Option[List[String]], List[String] => String) => Z, remaining: => Z) =
     remaining
@@ -100,7 +100,6 @@ trait PathTemplates {
     
     private def exactPath[F[_], A](f: F[A])(implicit mw:  MonadWeb[F]): F[A] = {
       import Web.{getRequest, pass}
-      implicit val b = mw.bind
       getRequest flatMap (r => if (r.pathInfo == "") f else pass)
     }
     

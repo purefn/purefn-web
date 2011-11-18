@@ -1,8 +1,6 @@
 package purefn.web
 
-import scalaz._, Scalaz._
-
-import PathTemplate._, Web.{getRequest, putRequest, modifyRequest, pass, Params}
+import PathTemplate._, Web.{getRequest, putRequest, modifyRequest, pass}
 
 import java.net.URLDecoder
 
@@ -14,13 +12,23 @@ private[web] sealed trait Route[F[_], A] {
       none: => Z): Z
 }
 
-object Route extends Routes
+object Route extends RouteFunctions with RouteInstances
 
-trait Routes {
-  def route[F[_], A](routes: (PathTemplate[_], F[A])*)(implicit mws: MonadWeb[F]): F[A] = {
-    implicit val ftr = mws.functor
-    implicit val bd = mws.bind
-    lazy val router = (routes map (rt => rt._1.routeTo(rt._2))).suml
+import scalaz._
+import syntax.monoid._
+import syntax.plus._
+import std.map._
+trait RouteFunctions {
+  import std.list._
+  import std.string._
+  import syntax.bind._
+  import syntax.foldable._
+  import syntax.std.listV._
+  import syntax.std.booleanV._
+  
+  def route[F[_]: MonadWeb, A](routes: (PathTemplate[_], F[A])*): F[A] = {
+    lazy val a = routes map (rt => rt._1.routeTo(rt._2))
+    lazy val router = (a).toList.foldMapIdentity
     for {
       req <- getRequest[F]
       val p = req.pathInfo
@@ -29,14 +37,14 @@ trait Routes {
   }
 
   private def routeReq[F[_]: MonadWeb, A](router: Route[F, A], ctx: List[String], path: List[String], params: Params): F[A] = {
-    implicit val plus = implicitly[MonadWeb[F]].plus
     def updateContextPath(ctx: List[String], r: Request): Request = {
-      val n = ctx.intersperse("/").suml.length
+      val n = ctx.intersperse("/").foldMapIdentity.length
       if (n == 0) r
       else r.copy(
         pathInfo = r.pathInfo.drop(n+1),
-        contextPath = Seq(r.contextPath, r.pathInfo.take(n), "/").suml)
+        contextPath = List(r.contextPath, r.pathInfo.take(n), "/").foldMapIdentity)
     }
+    
     router(
       none = pass,
       lit = (rs, fb) => path match {
@@ -49,8 +57,8 @@ trait Routes {
       param = (name, matches, route, fb) => path match {
         case Nil => routeReq(fb, ctx, Nil, params)
         case cwd :: rest =>
-          matches(cwd) option routeReq(route, cwd::ctx, rest, params |+| Map(name -> Seq(cwd))) getOrElse pass <+>
-            routeReq(fb, ctx, path, params)
+          (matches(cwd) option routeReq(route, cwd::ctx, rest, params |+| Map(name -> List(cwd))) getOrElse pass) <+>
+            routeReq[F, A](fb, ctx, path, params)
       },
       resource = handler => withModifiedRequest(handler)(req => 
         updateContextPath(ctx, req.copy(params = params |+| req.params))
@@ -58,17 +66,14 @@ trait Routes {
     )
   }
   
-  def withModifiedRequest[F[_], A](w: F[A])(f: Request => Request)(implicit mw: MonadWeb[F]): F[A] = {
-    implicit val bind = mw.bind
-    implicit val plus = mw.plus
-    implicit val ftr = mw.functor
+  def withModifiedRequest[F[_]: MonadWeb, A](w: F[A])(f: Request => Request): F[A] = {
     def tryReq(req: Request): F[A] = 
       for {
         _ <- modifyRequest(f)
         result <- w
         _ <- putRequest(req)
       } yield result
-    getRequest flatMap (req => tryReq(req) <+> (putRequest(req) >|> pass))
+    getRequest flatMap (req => tryReq(req) <+> (putRequest(req) >> pass))
   }
   
   private def splitPath(p: String): List[String] = p.split("/").map(URLDecoder.decode(_, "UTF-8")).toList
@@ -104,47 +109,47 @@ trait Routes {
         lit: (Map[String, Route[F, A]], Route[F, A]) => Z, 
         none: => Z) = none
   }
+}
 
-  private implicit def RouteZero[F[_], A]: Zero[Route[F, A]] = new Zero[Route[F, A]] {
-    val zero: Route[F, A] = noRoute
-  }
-
-  private implicit def RouteSemigroup[F[_], A](implicit mw: MonadWeb[F]): Semigroup[Route[F, A]] = {
-    implicit val alt = mw.plus
-    semigroup(r1 => r2 =>
+trait RouteInstances {
+  implicit def routeMonoid[F[_]: MonadWeb, A]: Monoid[Route[F, A]] = new Monoid[Route[F, A]] {
+    import Route.{litRoute, noRoute, paramRoute, resourceRoute}
+    
+    def zero = noRoute
+    
+    def append(r1: Route[F, A], r2: => Route[F, A]): Route[F, A] = 
       r1(
         none = r2,
         resource = a => r2.apply(
           none = r1,
           resource = b => resourceRoute(a <+> b),
           lit = (_, _) => litRoute(Map(), r1) |+| r2,
-          param = (name, matches,  rt, fb) => paramRoute(name, matches, rt, fb |+| r1)
+          param = (name, matches,  rt, fb) => paramRoute(name, matches, rt, append(fb, r1))
         ),
         param = (name1, matches1, rt1, fb1) => r2.apply(
           none = r1,
-          resource = _ => paramRoute(name1, matches1, rt1, fb1 |+| r2),
-          lit = (rs, fb2) => litRoute(rs, fb2 |+| r1),
+          resource = _ => paramRoute(name1, matches1, rt1, append(fb1, r2)),
+          lit = (rs, fb2) => litRoute(rs, append(fb2, r1)),
           param = (name2, matches2, rt2, fb2) => {
             lazy val rh1 = routeHeight(r1)
             lazy val rh2 = routeHeight(r2)
             lazy val np1 = routeEarliestNonParam(rt1, 1)
             lazy val np2 = routeEarliestNonParam(rt2, 1)
-            if (rh1 > rh2) paramRoute(name1, matches1, rt1, fb1 |+| r2)
-            else if (rh1 < rh2) paramRoute(name2, matches2, rt2, fb2 |+| r1)
-            else if (np1 > np2) paramRoute(name2, matches2, rt2, fb2 |+| r1)
-            else paramRoute(name1, matches1, rt1, fb1 |+| r2)
+            if (rh1 > rh2) paramRoute(name1, matches1, rt1, append(fb1, r2))
+            else if (rh1 < rh2) paramRoute(name2, matches2, rt2, append(fb2, r1))
+            else if (np1 > np2) paramRoute(name2, matches2, rt2, append(fb2, r1))
+            else paramRoute(name1, matches1, rt1, append(fb1, r2))
           }
         ),
         lit = (rs1, fb1) => r2.apply(
           none = r1,
-          resource = _ => litRoute(rs1, fb1 |+| r2),
-          param = (_, _, _, _) => litRoute(rs1, fb1 |+| r2),
-          lit = (rs2, fb2) => litRoute(rs1 |+| rs2, fb1 |+| fb2)
+          resource = _ => litRoute(rs1, append(fb1, r2)),
+          param = (_, _, _, _) => litRoute(rs1, append(fb1, r2)),
+          lit = (rs2, fb2) => litRoute(rs1 |+| rs2, append(fb1, fb2))
         )
       )
-    )
   }
-  
+    
   private def routeHeight[F[_], A](r: Route[F, A]): Int = r(
     none = 1,
     resource = _ => 1,
@@ -158,6 +163,4 @@ trait Routes {
     lit = (_, _) => n,
     param = (_, _, rt, _) => routeEarliestNonParam(rt, n + 1)
   )
-  
-  private implicit def RouteMonoid[F[_], A](implicit sg: MonadWeb[F]): Monoid[Route[F, A]] = monoid
 }

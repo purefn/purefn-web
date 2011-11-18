@@ -1,16 +1,17 @@
 package purefn.web
 
-import scalaz._, Scalaz._
+import scalaz._
+import syntax.equal._
 
 sealed trait CaseInsensitive[A] {
   val original: A
   def foldedCase: A
 }
 
-object CaseInsensitive {
+object CaseInsensitive extends CaseInsensitiveInstances {
   def apply[A](a: A)(implicit fc: FoldCase[A], eq: Equal[A]): CaseInsensitive[A] = mk(a, fc.foldCase(a))
   
-  private def mk[A: Equal](a: A, fc: => A): CaseInsensitive[A] = new CaseInsensitive[A] {
+  private[web] def mk[A: Equal](a: A, fc: => A): CaseInsensitive[A] = new CaseInsensitive[A] {
     val original = a
     lazy val foldedCase = fc
     
@@ -21,32 +22,40 @@ object CaseInsensitive {
     
     override lazy val hashCode: Int = 37 * (41 + foldedCase.hashCode)
   }
+}
+
+trait CaseInsensitiveInstances {
+  implicit def CaseInsensitiveMonoid[A: FoldCase : Monoid : Equal]: Monoid[CaseInsensitive[A]] =
+    new Monoid[CaseInsensitive[A]] {
+      def zero = CaseInsensitive[A](Monoid[A].zero)
+      def append(a: CaseInsensitive[A], b: => CaseInsensitive[A]) = 
+        CaseInsensitive(Semigroup[A].append(a.original, b.original))
+    }
   
-  implicit def CaseInsensitiveZero[A](implicit fc: FoldCase[A], z: Zero[A], eq: Equal[A]): Zero[CaseInsensitive[A]] = 
-    Zero.zero(CaseInsensitive(z.zero))
-    
-  implicit def CaseInsensitiveSemigroup[A](implicit fc: FoldCase[A], sg: Semigroup[A], eq: Equal[A]): Semigroup[CaseInsensitive[A]] = 
-    Semigroup.semigroup(a => b => mk(sg.append(a.original, b.original), sg.append(a.foldedCase, b.foldedCase)))
+  implicit def CaseInsensitiveEqual[A: Equal]: Equal[CaseInsensitive[A]] = 
+    new Equal[CaseInsensitive[A]] {
+      def equal(a: CaseInsensitive[A], b: CaseInsensitive[A]) = 
+        Equal[A].equal(a.foldedCase, b.foldedCase)
+    }
   
-  implicit def CaseInsensitiveMonoid[A: FoldCase : Semigroup : Zero : Equal]: Monoid[CaseInsensitive[A]] = Monoid.monoid
+  implicit def CaseInsensitiveOrder[A: Order]: Order[CaseInsensitive[A]] = 
+    new Order[CaseInsensitive[A]] {
+      def order(a: CaseInsensitive[A], b: CaseInsensitive[A]) = Order[A].order(a.foldedCase, b.foldedCase)
+    }
   
-  implicit def CaseInsensitiveEqual[A](implicit eq: Equal[A]): Equal[CaseInsensitive[A]] = 
-    Equal.equal(a => b => eq.equal(a.foldedCase)(b.foldedCase))
-  
-  implicit def CaseInsensitiveOrder[A](implicit ord: Order[A]): Order[CaseInsensitive[A]] = 
-    Order.order(a => b => ord.order(a.foldedCase)(b.foldedCase))
-  
-  implicit def CaseInsensitiveString(s: String): CaseInsensitive[String] = CaseInsensitive(s)
-  
-  implicit def CaseInsensitiveShow[A](implicit s: Show[A]): Show[CaseInsensitive[A]] =
-    Show.shows(a => s.shows(a.original))
+  implicit def CaseInsensitiveShow[A: Show]: Show[CaseInsensitive[A]] =
+    new Show[CaseInsensitive[A]] {
+      def show(a: CaseInsensitive[A]) = Show[A].show(a.original)
+    }
 }
 
 trait FoldCase[A] {
   def foldCase(a: A): A
 }
 
-object FoldCase {
+object FoldCase extends FoldCaseInstances
+
+trait FoldCaseInstances {
   implicit def StringFoldCase: FoldCase[String] = new FoldCase[String] {
     def foldCase(s: String) = s.toLowerCase
   }

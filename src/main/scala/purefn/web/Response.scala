@@ -1,8 +1,8 @@
 package purefn.web
 
-import scalaz._, Scalaz._, effect._
-
-import Response._, Headers._
+import scalaz._
+import syntax.monoid._
+import iteratee.EnumeratorT._
 
 sealed case class Response(
   httpVersion: String = "1.1",
@@ -13,12 +13,9 @@ sealed case class Response(
   body: ResponseBody = new Forall[ResponseEnumT] { def apply[A] = mzero[ResponseEnumT[A]] }
 )
 
-object Response extends Responses
+object Response extends ResponseFunctions with ResponseInstances
 
-trait Responses {
-  type ResponseEnumT[A] = EnumeratorT[Throwable, String, IO, A]
-  type ResponseBody = Forall[ResponseEnumT]
-  
+trait ResponseFunctions {
   def emptyResponse: Response = Response()
   
   import Web._
@@ -38,23 +35,35 @@ trait Responses {
     Response(
       status = 404,
       statusReason = "Not Found",
-      contentLength = some(body.length),
+      contentLength = Some(body.length),
       body = new Forall[ResponseEnumT] { def apply[A] = enumStream(Stream(body)) } )
   }
 
   implicit def responseBodyStr(s: String): ResponseBody = new Forall[ResponseEnumT] {
     def apply[A] = enumStream(Stream(s))
   }
+}
+
+trait ResponseInstances {    
+  implicit def ShowResponse: Show[Response] = new Show[Response] {
+    import Headers._
+    import syntax.show._
+    import std.string._
+    import std.list._
+    import syntax.foldable._
+
+    def show(r: Response) = shows(r).toList
     
-  implicit def ShowResponse: Show[Response] = shows { r =>
-    def hdrs = Seq(
-      Seq("headers:", "=============================="), 
-      showHeaders(r),
-      Seq("==============================")).suml
-    def version = "version: " + r.httpVersion
-    def status = "status: " + r.status
-    def reason = "reason: " + r.statusReason
-    def body = (hdrs ++ Seq(version, status, reason)).map(("    " + _) andThen (_ + "\n")).suml
-    Seq("Response <\n", body, ">").suml
+    override def shows(r: Response) = {
+      def hdrs = List(
+        List("headers:", "=============================="), 
+        showHeaders(r),
+        List("==============================")).flatten
+      def version = "version: " + r.httpVersion
+      def status = "status: " + r.status
+      def reason = "reason: " + r.statusReason
+      def body = (hdrs ++ List(version, status, reason)).flatMap(_.map(("    " + _) andThen (_ + "\n"))).foldMapIdentity
+      List("Response <\n", body, ">").foldMapIdentity
+    }
   }
 }
