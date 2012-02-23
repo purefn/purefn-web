@@ -82,18 +82,11 @@ trait WebFunctions {
   /* Writing responses */
   import iteratee.EnumeratorT.enumStream
 
-  def writeStr[F[_]: MonadWeb](s: String): F[Unit] = addToBody(new Forall[ResponseEnumT] { 
-    def apply[A] = enumStream(Stream(s))
-  })
+  def writeStr[F[_]: MonadWeb](s: String): F[Unit] = addToBody(enumStream(Stream(s)))
   
   import Response._
   import syntax.monoid._
   import iteratee._
   
-  def addToBody[F[_]: MonadWeb](enum: ResponseBody): F[Unit] =
-    modifyResponse(modifyResponseBody(new (ResponseEnumT ~> ResponseEnumT) {
-      def apply[A](e: ResponseEnumT[A]) = {
-        e |+| enum[A]
-      }
-    }))
+  def addToBody[F[_]: MonadWeb](enum: ResponseBody): F[Unit] = modifyResponse(modifyResponseBody(_ |+| enum))
 }

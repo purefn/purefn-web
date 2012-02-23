@@ -10,7 +10,7 @@ sealed case class Response(
   statusReason: String = "Ok",
   contentLength: Option[Long] = None,
   headers: Headers = Map(),
-  body: ResponseBody = new Forall[ResponseEnumT] { def apply[A] = mzero[ResponseEnumT[A]] }
+  body: ResponseBody = mzero[ResponseBody]
 )
 
 object Response extends ResponseFunctions with ResponseInstances
@@ -24,10 +24,7 @@ trait ResponseFunctions {
   
   def setResponseStatus(s: Int, reason: String): Response => Response = _.copy(status = s, statusReason = reason)
   
-  def modifyResponseBody(f: ResponseEnumT ~> ResponseEnumT): Response => Response = r => 
-    r.copy(body = new Forall[ResponseEnumT] {
-      def apply[A] = f(r.body[A])
-    })
+  def modifyResponseBody(f: ResponseBody => ResponseBody): Response => Response = r => r.copy(body = f(r.body))
 
   def fourOhFour = {
     val body = "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1>" +
@@ -36,7 +33,7 @@ trait ResponseFunctions {
       status = 404,
       statusReason = "Not Found",
       contentLength = Some(body.length),
-      body = new Forall[ResponseEnumT] { def apply[A] = enumStream(Stream(body)) } )
+      body = enumStream(Stream(body)))
   }
   
   def fourOhSix: Response = 
@@ -46,9 +43,7 @@ trait ResponseFunctions {
       contentLength = Some(0)
     )
 
-  implicit def responseBodyStr(s: String): ResponseBody = new Forall[ResponseEnumT] {
-    def apply[A] = enumStream(Stream(s))
-  }
+  implicit def responseBodyStr(s: String): ResponseBody = enumStream(Stream(s))
 }
 
 trait ResponseInstances {    

@@ -16,11 +16,11 @@ object CaseInsensitive extends CaseInsensitiveInstances {
     lazy val foldedCase = fc
     
     override def equals(other: Any): Boolean = other match {
-      case that: CaseInsensitive[A] => foldedCase === that.foldedCase
+      case that: CaseInsensitive[_] => foldedCase == that.foldedCase
       case _ => false
     }
     
-    override lazy val hashCode: Int = 37 * (41 + foldedCase.hashCode)
+    override lazy val hashCode: Int = foldedCase.hashCode
   }
 }
 

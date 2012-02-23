@@ -14,8 +14,7 @@ package object web {
   type WebFn[S, A] = Kleisli[Web, S, A]
   type Params = Map[String, List[String]]
 
-  type ResponseEnumT[A] = EnumeratorT[Throwable, String, IO, A]
-  type ResponseBody = Forall[ResponseEnumT]
+  type ResponseBody = EnumeratorT[Throwable, String, IO]
   
   object WebFn extends WebFnInstances
   object Headers extends HeadersFunctions
