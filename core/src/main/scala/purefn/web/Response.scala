@@ -70,7 +70,7 @@ trait ResponseInstances {
   }
 
   implicit def ResponseHasHeaders: HasHeaders[Response] = new HasHeaders[Response] {
-    def updateHeaders(r: Response)(f: Headers => Headers) = r.copy(headers = f(r.headers))
+    def updateHeaders(f: Headers => Headers)(r: Response) = r.copy(headers = f(r.headers))
     def headers(r: Response) = r.headers
   }
 }

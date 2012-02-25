@@ -1,7 +1,7 @@
 package purefn.web
 
 trait HasHeaders[F] {
-  def updateHeaders(a: F)(f: Headers => Headers): F
+  def updateHeaders(f: Headers => Headers)(a: F): F
   def headers(a: F): Headers
 }
 

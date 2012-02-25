@@ -10,16 +10,15 @@ sealed case class WebData(request: Request, response: Response)
 sealed trait Web[A] {
   val state: WebState[WebResult[A]]
   
-  def map[B](f: A => B): Web[B] = {
-    Web(state map(_ map (_ map f)))
-  }
+  def map[B](f: A => B): Web[B] = Web(state map(_ map (_ map f)))
   
-  def flatMap[B](f: A => Web[B]): Web[B] = Web(state flatMap(
-    _ fold (
-      none = none.point[WebState],
-      some = _.fold(
-        failure = r => r.fail.some.point[WebState],
-        success = a => f(a).state))))
+  def flatMap[B](f: A => Web[B]): Web[B] = Web(state flatMap(_ fold (
+      none = none.point[WebState]
+    , some = _ fold (
+        failure = r => r.fail.some.point[WebState]
+      , success = a => f(a).state
+      )
+    )))
 
   def run[A](req: Request): WebIter[(Request, Response)] = {
     import Response._
@@ -29,9 +28,7 @@ sealed trait Web[A] {
 }
 
 object Web extends WebFunctions with WebInstances with WebFnInstances {
-  def apply[A](s: WebState[WebResult[A]]): Web[A] = new Web[A] {
-    val state = s
-  }
+  def apply[A](s: WebState[WebResult[A]]): Web[A] = new Web[A] { val state = s }
 }
 
 trait WebInstances {
@@ -84,9 +81,10 @@ trait WebFunctions {
 
   def writeStr[F[_]: MonadWeb](s: String): F[Unit] = addToBody(enumStream(Stream(s)))
   
-  import Response._
-  import syntax.monoid._
-  import iteratee._
+  import Response._, Headers._
+  import syntax.semigroup._
   
   def addToBody[F[_]: MonadWeb](enum: ResponseBody): F[Unit] = modifyResponse(modifyResponseBody(_ |+| enum))
+  
+  def addResponseHeader[F[_]: MonadWeb](h: CaseInsensitive[String], v: String): F[Unit] = modifyResponse(addHeader(h, v))
 }

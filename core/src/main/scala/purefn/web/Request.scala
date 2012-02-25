@@ -1,14 +1,28 @@
 package purefn.web
 
 sealed case class Request(
-  httpVersion: String = "1.1",
-  pathInfo: String = "",
-  headers: Headers = Map(),
-  contextPath: String = "",
-  params: Params = Map()
-)
+    httpVersion: String = "1.1"
+  , method: String = "GET"
+  , pathInfo: String = ""
+  , headers: Headers = Map()
+  , contextPath: String = ""
+  , params: Params = Map()
+  )
 
-object Request extends RequestInstances
+object Request extends RequestInstances {
+  sealed abstract class Method
+
+  object Method {
+    case object GET extends Method
+    case object HEAD extends Method
+    case object POST extends Method
+    case object PUT extends Method
+    case object DELETE extends Method
+    case object TRACE extends Method
+    case object OPTIONS extends Method
+    case object CONNECT extends Method
+  }
+}
 
 trait RequestInstances {
   import Web._
@@ -28,6 +42,7 @@ trait RequestInstances {
         List("headers:", "=============================="),
         showHeaders(r), 
         List("==============================")).flatten
+      def method = List("method: " + r.method)
       def version = List("version: " + r.httpVersion)
       def pathInfo = List("path info: " + r.pathInfo)
       def contextPath = List("context path: " + r.contextPath)
@@ -36,15 +51,13 @@ trait RequestInstances {
         r.params.toList.flatMap(kv => List(kv._1.shows, ": ", kv._2.toList.shows)),
         List("==============================")).flatten
       def body: String =
-        List(hdrs, version, pathInfo, contextPath, params).flatMap(_.map(("    " + _) andThen (_ + "\n"))).foldMap()     
+        List(hdrs, method, version, pathInfo, contextPath, params).flatMap(_.map(("    " + _) andThen (_ + "\n"))).foldMap()     
       List("Request <\n", body, ">").foldMap()
-      
-      
     }
   }
 
   implicit def RequestHasHeaders: HasHeaders[Request] = new HasHeaders[Request] {
-    def updateHeaders(r: Request)(f: Headers => Headers) = r.copy(headers = f(r.headers))
+    def updateHeaders(f: Headers => Headers)(r: Request) = r.copy(headers = f(r.headers))
     def headers(r: Request) = r.headers
   }
 }
